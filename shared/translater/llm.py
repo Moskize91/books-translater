@@ -7,6 +7,8 @@ from langchain_anthropic import ChatAnthropic
 from langchain_openai import ChatOpenAI
 from langchain_google_vertexai import ChatVertexAI
 
+from .executor import LLMExecutor
+
 
 class LLM_API(Enum):
   OpenAI = 1,
@@ -23,18 +25,17 @@ class LLM:
       temperature: float,
       timeout: float | None,
     ) -> None:
-    self._model: ChatAnthropic | ChatOpenAI | ChatVertexAI
-    self._timeout: float | None = timeout
 
+    llm_model: ChatAnthropic | ChatOpenAI | ChatVertexAI
     if api == LLM_API.OpenAI:
-      self._model = ChatOpenAI(
+      llm_model = ChatOpenAI(
         api_key=cast(SecretStr, key),
         base_url=url,
         model=model,
         temperature=temperature,
       )
     elif api == LLM_API.Claude:
-      self._model = ChatAnthropic(
+      llm_model = ChatAnthropic(
         api_key=cast(SecretStr, key),
         model_name=model,
         base_url=url,
@@ -43,22 +44,28 @@ class LLM:
         temperature=temperature,
       )
     elif api == LLM_API.Gemini:
-      self._model = ChatVertexAI(
+      llm_model = ChatVertexAI(
         model=model,
         base_url=url,
         timeout=timeout,
         temperature=temperature,
       )
 
+    self._timeout: float | None = timeout
+    self._executor: LLMExecutor = LLMExecutor(
+      llm_model=llm_model,
+      timeout=timeout,
+      retry_times=15,
+      retry_interval_seconds=4.5,
+    )
+
   def invoke(self, system: str, human: str) -> str:
-    resp = self._model.invoke(
-      timeout=self._timeout,
+    return self._executor.request(
       input=[
         SystemMessage(content=system),
         HumanMessage(content=human),
       ],
     )
-    return str(resp.content)
 
   def invoke_response_lines(self, system: str, human: str) -> Generator[str, None, None]:
     stream = self._model.stream(
